@@ -45,11 +45,18 @@ phases:
           -t my-java-app 
           --build-arg AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" 
           --build-arg AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" .
+	  - echo Running security scan on Docker image...
+      - >
+        SCAN_RESULT=$(docker scan --severity high --json $IMAGE_NAME:$IMAGE_TAG)
+        echo "$SCAN_RESULT" > scan_result.json
+        echo "Vulnerability scan result:"
+        cat scan_result.json	  
       - echo "Logging into Amazon ECR"
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
       - echo "Tagging Docker image with ECR repository URI..."
       - docker tag my-java-app $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:my-java-app
       - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:my-java-app
+	 
                      
   post_build:
     commands:
@@ -86,3 +93,4 @@ phases:
 artifacts:
   files:
     - target/*.war
+	- scan_result.json
