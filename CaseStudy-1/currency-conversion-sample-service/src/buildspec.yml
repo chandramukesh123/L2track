@@ -1,0 +1,88 @@
+version: 0.2
+
+env:
+  parameter-store:
+    AWS_ACCESS_KEY_ID: "/my-java-app/aws-key/accesskey"
+    AWS_SECRET_ACCESS_KEY: "/my-java-app/aws-key/secretkey"
+    
+  variables:
+    AWS_ACCOUNT_ID: "533267148144"
+    IMAGE_REPO_NAME: "mukesh-images"  
+    IMAGE_TAG: "tomlatest"   
+    AWS_DEFAULT_REGION: "us-east-1"
+
+phases:
+  install:
+    commands:
+      - echo installing jre and maven
+      - apt-get update && apt-get install default-jre -y
+      - apt-get update && apt-get install maven -y
+      - echo java version is `java --version`
+      - apt-get update
+      - apt-get install -y awscli
+      - echo Configuring AWS CLI...
+      - aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+      - aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+      - aws configure set region $AWS_DEFAULT_REGION
+      - aws configure list
+	  - echo Installing SonarQube Scanner...
+      - curl -LsS https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.6.2.2472-linux.zip -o /tmp/sonar-scanner-cli.zip
+      - unzip -qq /tmp/sonar-scanner-cli.zip -d /opt
+      - export PATH=$PATH:/opt/sonar-scanner-cli-4.6.2.2472-linux/bin
+  build:
+    commands:
+      - echo "Building Java project"
+      - mvn clean package
+	  - sonar-scanner 
+          -Dsonar.projectKey=<PROJECT_KEY> 
+          -Dsonar.sources=. 
+          -Dsonar.host.url=<SONARQUBE_URL> 
+          -Dsonar.login=<SONARQUBE_TOKEN> 
+          -Dsonar.java.coveragePlugin=jacoco 
+          -Dsonar.coverage.exclusions=**/Generated*.java  
+      - echo "building docker image"
+      - docker build 
+          -t my-java-app 
+          --build-arg AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" 
+          --build-arg AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" .
+      - echo "Logging into Amazon ECR"
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+      - echo "Tagging Docker image with ECR repository URI..."
+      - docker tag my-java-app $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:my-java-app
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:my-java-app
+                     
+  post_build:
+    commands:
+      - echo Build completed on `date`
+	  - echo Checking SonarQube results...
+    - >
+      SONAR_RESULT=$(curl -s -u <SONARQUBE_TOKEN>: \
+      -X GET "<SONARQUBE_URL>/api/issues/search?componentKeys=<PROJECT_KEY>&resolved=false&types=BUG,VULNERABILITY,SECURITY_HOTSPOT&ps=1")
+      CRITICAL_ISSUES=$(echo $SONAR_RESULT | jq -r '.total')
+      if [ $CRITICAL_ISSUES -gt 0 ]; then
+        echo "Critical issues found in the code. Sending notification..."
+        # Add your notification logic here (e.g., using AWS SNS, email, etc.)
+        # Example AWS SNS notification:
+        # aws sns publish --topic-arn <SNS_TOPIC_ARN> --message "Critical issues found in the code."
+        exit 1  # Fail the build if critical issues are found
+      else
+        echo "No critical issues found."
+      fi
+
+    - >
+      SONAR_RESULT=$(curl -s -u <SONARQUBE_TOKEN>: \
+      -X GET "<SONARQUBE_URL>/api/measures/component?componentKey=<PROJECT_KEY>&metricKeys=coverage")
+      SONAR_COVERAGE=$(echo $SONAR_RESULT | jq -r '.component.measures[] | select(.metric == "coverage").value')
+      if [ $(echo "$SONAR_COVERAGE < 80" | bc) -eq 1 ]; then
+        echo "Code coverage is below 80% ($SONAR_COVERAGE%). Sending notification..."
+        # Add your notification logic here (e.g., using AWS SNS, email, etc.)
+        # Example AWS SNS notification:
+        # aws sns publish --topic-arn <SNS_TOPIC_ARN> --message "Code coverage is below 80% ($SONAR_COVERAGE%)."
+        exit 1  # Fail the build if coverage is less than 80%
+      else
+        echo "Code coverage is acceptable ($SONAR_COVERAGE%)."
+      fi
+      
+artifacts:
+  files:
+    - target/*.war
