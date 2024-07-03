@@ -10,6 +10,8 @@ env:
     IMAGE_REPO_NAME: "mukesh-images"  
     IMAGE_TAG: "tomlatest"   
     AWS_DEFAULT_REGION: "us-east-1"
+	EKS_CLUSTER_NAME: "app-cluster"
+	KUBERNETES_NAMESPACE: "default"
 
 phases:
   install:
@@ -34,10 +36,10 @@ phases:
       - echo "Building Java project"
       - mvn clean package
 	  - sonar-scanner 
-          -Dsonar.projectKey=<PROJECT_KEY> 
+          -Dsonar.projectKey=currency-conversion-sample-service
           -Dsonar.sources=. 
-          -Dsonar.host.url=<SONARQUBE_URL> 
-          -Dsonar.login=<SONARQUBE_TOKEN> 
+          -Dsonar.host.url=203.0.113.42:9000
+          -Dsonar.login=ghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ
           -Dsonar.java.coveragePlugin=jacoco 
           -Dsonar.coverage.exclusions=**/Generated*.java  
       - echo "building docker image"
@@ -56,39 +58,38 @@ phases:
       - echo "Tagging Docker image with ECR repository URI..."
       - docker tag my-java-app $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:my-java-app
       - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:my-java-app
-	 
-                     
+               
   post_build:
     commands:
       - echo Build completed on `date`
 	  - echo Checking SonarQube results...
     - >
-      SONAR_RESULT=$(curl -s -u <SONARQUBE_TOKEN>: \
-      -X GET "<SONARQUBE_URL>/api/issues/search?componentKeys=<PROJECT_KEY>&resolved=false&types=BUG,VULNERABILITY,SECURITY_HOTSPOT&ps=1")
+      SONAR_RESULT=$(curl -s -u ghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ: \
+      -X GET "203.0.113.42:9000/api/issues/search?componentKeys=currency-conversion-sample-service&resolved=false&types=BUG,VULNERABILITY,SECURITY_HOTSPOT&ps=1")
       CRITICAL_ISSUES=$(echo $SONAR_RESULT | jq -r '.total')
       if [ $CRITICAL_ISSUES -gt 0 ]; then
-        echo "Critical issues found in the code. Sending notification..."
-        # Add your notification logic here (e.g., using AWS SNS, email, etc.)
-        # Example AWS SNS notification:
-        # aws sns publish --topic-arn <SNS_TOPIC_ARN> --message "Critical issues found in the code."
-        exit 1  # Fail the build if critical issues are found
+        echo "code analysis failed"
+        # aws sns publish --topic-arn arn:aws:sns:us-east-1:533267148144:sonar-result --message "Critical issues found in the code."
+        exit 1  # stopping the build
       else
         echo "No critical issues found."
       fi
 
     - >
-      SONAR_RESULT=$(curl -s -u <SONARQUBE_TOKEN>: \
-      -X GET "<SONARQUBE_URL>/api/measures/component?componentKey=<PROJECT_KEY>&metricKeys=coverage")
+      SONAR_RESULT=$(curl -s -u ghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ: \
+      -X GET "203.0.113.42:9000/api/measures/component?componentKey=currency-conversion-sample-service&metricKeys=coverage")
       SONAR_COVERAGE=$(echo $SONAR_RESULT | jq -r '.component.measures[] | select(.metric == "coverage").value')
       if [ $(echo "$SONAR_COVERAGE < 80" | bc) -eq 1 ]; then
         echo "Code coverage is below 80% ($SONAR_COVERAGE%). Sending notification..."
-        # Add your notification logic here (e.g., using AWS SNS, email, etc.)
-        # Example AWS SNS notification:
-        # aws sns publish --topic-arn <SNS_TOPIC_ARN> --message "Code coverage is below 80% ($SONAR_COVERAGE%)."
-        exit 1  # Fail the build if coverage is less than 80%
+        # aws sns publish --topic-arn arn:aws:sns:us-east-1:533267148144:codecoverage-result --message "Code coverage is below 80% ($SONAR_COVERAGE%)."
+        exit 1  # stopping the build
       else
         echo "Code coverage is acceptable ($SONAR_COVERAGE%)."
       fi
+      - echo Updating Kubernetes deployment...
+      - aws eks update-kubeconfig --region $AWS_DEFAULT_REGION --name $EKS_CLUSTER_NAME
+      - kubectl set image deployment/app-deployment my-container=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:my-java-app -n $KUBERNETES_NAMESPACE
+      - kubectl rollout status deployment/app-deployment -n $KUBERNETES_NAMESPACE
       
 artifacts:
   files:
