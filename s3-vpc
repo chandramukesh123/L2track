@@ -1,0 +1,185 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to create an EC2 instance with access to an S3 bucket.
+
+Parameters:
+  KeyName:
+    Description: Key pair name
+    Type: AWS::EC2::KeyPair::KeyName
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 192.168.38.0/24
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: vpc-s3
+
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 192.168.38.64/26
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: private-vpc-subnet
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: internet-gateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: vpc-routetable
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: private-routetable
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PrivateSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet
+      RouteTableId: !Ref PrivateRouteTable
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access via port 22
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: SecurityGroup
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: Private
+      BucketName: mukesh-s3-logs34rfdytg
+      Tags:
+        - Key: Name
+          Value: mukesh-s3
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref Role]
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3AccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetObject
+                Resource:
+                  - !Sub arn:aws:s3:::mukesh-s3-logs34rfdytg
+                  - !Sub arn:aws:s3:::mukesh-s3-logs34rfdytg/*
+        - PolicyName: CloudWatchLogsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName
+      SubnetId: !Ref PrivateSubnet
+      SecurityGroupIds: [!Ref SecurityGroup]
+      IamInstanceProfile: !Ref InstanceProfile
+      ImageId: ami-06c68f701d8090592
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          sudo yum update -y
+          sudo yum install -y awslogs
+          sudo mkdir -p /var/log/myapp
+          echo "* * * * * root aws s3 ls s3://mukesh-s3-logs34rfdytg/ > /var/log/myapp/s3-bucket-list.txt" > /etc/cron.d/s3bucketcheck
+          echo "*/5 * * * * root /usr/local/bin/awslogs-agent-setup.py --region ${AWS::Region} -n myloggroup --configfile /etc/awslogs/config/agent.conf" > /etc/cron.d/awslogs
+          sudo service awslogsd start
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: ec2-s3-logs
+
+  LogStream:
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: !Ref LogGroup
+      LogStreamName: ec2-s3-stream
+
+  CloudTrail:
+    Type: AWS::CloudTrail::Trail
+    Properties:
+      IsLogging: true
+      S3BucketName: !Ref S3Bucket
+      IncludeGlobalServiceEvents: true
+      IsMultiRegionTrail: true
+      TrailName: ec2-s3-trail
+
+Outputs:
+  EC2Instance:
+    Description: EC2 Instance ID
+    Value: !Ref EC2Instance
+  S3Bucket:
+    Description: S3 Bucket Name
+    Value: !Ref S3Bucket
+  LogGroup:
+    Description: CloudWatch Log Group
+    Value: !Ref LogGroup
+  CloudTrail:
+    Description: CloudTrail ARN
+    Value: !GetAtt CloudTrail.Arn
