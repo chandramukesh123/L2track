@@ -1,0 +1,192 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Provisioning S3 bucket and EC2 instances with Docker
+
+Parameters:
+  VpcCidrBlock:
+    Type: String
+    Default: "192.168.38.0/24"
+    Description: CIDR block for the VPC
+
+Resources:
+  MyVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidrBlock
+
+  SubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: "192.168.38.64/26"
+      AvailabilityZone: !Select [ 0, !GetAZs "" ]
+
+  SubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: "192.168.38.128/26"
+      AvailabilityZone: !Select [ 1, !GetAZs "" ]
+
+  SubnetC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: "192.168.38.192/27"
+      AvailabilityZone: !Select [ 2, !GetAZs "" ]
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref MyVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+
+  Route:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref InternetGateway
+
+  SubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetA
+      RouteTableId: !Ref RouteTable
+
+  SubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetB
+      RouteTableId: !Ref RouteTable
+
+  SubnetCRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetC
+      RouteTableId: !Ref RouteTable
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+
+  EC2InstanceA:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: ami-06c68f701d8090592  
+      KeyName: s3-key 
+      SubnetId: !Ref SubnetA
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          sudo yum update -y
+          sudo yum install -y docker
+          sudo service docker start
+		  sudo systemctl enable docker
+		  sudo wget https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.rpm
+		  sudo yum install -y ./mount-s3.rpm
+		  sudo mount-s3 mukesh-bucket3342f5 /home/ec2-user/s3-storage
+
+  EC2InstanceB:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: ami-06c68f701d8090592  
+      KeyName: s3-key  
+      SubnetId: !Ref SubnetB
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          sudo yum update -y
+          sudo yum install -y docker
+          sudo service docker start
+		  sudo systemctl enable docker
+		  sudo wget https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.rpm
+		  sudo yum install -y ./mount-s3.rpm
+		  sudo mount-s3 mukesh-bucket3342f5 /home/ec2-user/s3-storage
+
+  EC2InstanceC:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: ami-06c68f701d8090592   
+      KeyName: s3-key  
+      SubnetId: !Ref SubnetC
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y docker
+          service docker start
+		  sudo systemctl enable docker
+		  sudo wget https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.rpm
+		  sudo yum install -y ./mount-s3.rpm
+		  sudo mount-s3 mukesh-bucket3342f5 /home/ec2-user/s3-storage
+
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3AccessPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !GetAtt S3Bucket.Arn
+
+  EC2InstanceAProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2Role
+
+  EC2InstanceBProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2Role
+
+  EC2InstanceCProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2Role
+
+Outputs:
+  S3BucketName:
+    Description: Name of the S3 bucket
+    Value: !Ref S3Bucket
+
+  InstanceAInstanceId:
+    Description: Instance ID of EC2 Instance A
+    Value: !Ref EC2InstanceA
+
+  InstanceBInstanceId:
+    Description: Instance ID of EC2 Instance B
+    Value: !Ref EC2InstanceB
+
+  InstanceCInstanceId:
+    Description: Instance ID of EC2 Instance C
+    Value: !Ref EC2InstanceC
+
+  VpcId:
+    Description: VPC ID
+    Value: !Ref MyVPC
