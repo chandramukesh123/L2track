@@ -90,10 +90,10 @@ Resources:
           sudo yum update -y
           sudo yum install -y docker
           sudo service docker start
-		  sudo systemctl enable docker
-		  sudo wget https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.rpm
-		  sudo yum install -y ./mount-s3.rpm
-		  sudo mount-s3 mukesh-bucket3342f5 /home/ec2-user/s3-storage
+	  sudo systemctl enable docker
+	  sudo wget https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.rpm
+	  sudo yum install -y ./mount-s3.rpm
+	  sudo mount-s3 mukesh-bucket3342f5 /home/ec2-user/s3-storage
 
   EC2InstanceB:
     Type: AWS::EC2::Instance
@@ -108,10 +108,10 @@ Resources:
           sudo yum update -y
           sudo yum install -y docker
           sudo service docker start
-		  sudo systemctl enable docker
-		  sudo wget https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.rpm
-		  sudo yum install -y ./mount-s3.rpm
-		  sudo mount-s3 mukesh-bucket3342f5 /home/ec2-user/s3-storage
+	  sudo systemctl enable docker
+	  sudo wget https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.rpm
+	  sudo yum install -y ./mount-s3.rpm
+	  sudo mount-s3 mukesh-bucket3342f5 /home/ec2-user/s3-storage
 
   EC2InstanceC:
     Type: AWS::EC2::Instance
@@ -126,10 +126,10 @@ Resources:
           yum update -y
           yum install -y docker
           service docker start
-		  sudo systemctl enable docker
-		  sudo wget https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.rpm
-		  sudo yum install -y ./mount-s3.rpm
-		  sudo mount-s3 mukesh-bucket3342f5 /home/ec2-user/s3-storage
+	  sudo systemctl enable docker
+	  sudo wget https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.rpm
+	  sudo yum install -y ./mount-s3.rpm
+	  sudo mount-s3 mukesh-bucket3342f5 /home/ec2-user/s3-storage
 
   EC2Role:
     Type: AWS::IAM::Role
